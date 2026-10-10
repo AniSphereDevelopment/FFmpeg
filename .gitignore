@@ -1,0 +1,6 @@
+work/
+dist/
+node_modules/
+notes.md
+target/
+Cargo.lock

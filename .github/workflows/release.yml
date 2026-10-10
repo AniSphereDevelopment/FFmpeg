@@ -1,0 +1,180 @@
+name: Release Pipeline
+run-name: FFmpeg-${{ inputs.ffmpeg }}+${{ inputs.anisphere }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg:
+        description: FFmpeg version, a release on ffmpeg.org such as 9.0.2
+        required: true
+        type: string
+      anisphere:
+        description: AniSphere version the build is for, such as 2.0.0
+        required: true
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  FFMPEG_VERSION: ${{ inputs.ffmpeg }}
+  ANISPHERE_VERSION: ${{ inputs.anisphere }}
+  # The Windows cross compiler, for x64 and ARM64 alike.
+  LLVM_MINGW: '20260922'
+  LLVM_MINGW_SHA256: bb7bb7654b33d5aa8712acb837c963b2e0c56352560c76105270a3268c665c21
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      title: ${{ steps.plan.outputs.title }}
+    steps:
+      - name: Only a maintainer may release
+        env:
+          ALLOWED: xeidral
+        run: |
+          case " $ALLOWED " in
+            *" ${{ github.actor }} "*) echo "${{ github.actor }} may release" ;;
+            *) echo "::error::${{ github.actor }} is not allowed to release"; exit 1 ;;
+          esac
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Check the FFmpeg source
+        id: plan
+        run: node build.mjs plan
+
+      - name: The tag must be new
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "::error::release $TAG exists, pick another FFmpeg or AniSphere version"
+            exit 1
+          fi
+
+  build:
+    name: ${{ matrix.label }}
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - label: Windows x64
+            target: x86_64-pc-windows-msvc
+            os: ubuntu-24.04
+            mingw: true
+            tools: nasm
+          - label: Windows ARM64
+            target: aarch64-pc-windows-msvc
+            os: ubuntu-24.04
+            mingw: true
+          - label: Linux x64
+            target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+            tools: nasm
+          - label: Linux ARM64
+            target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - label: macOS Apple silicon
+            target: aarch64-apple-darwin
+            os: macos-15-intel
+          - label: macOS Intel
+            target: x86_64-apple-darwin
+            os: macos-15-intel
+            tools: nasm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install the assembler
+        if: matrix.tools
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y ${{ matrix.tools }}
+          else
+            brew install ${{ matrix.tools }}
+          fi
+
+      - name: Install llvm-mingw ${{ env.LLVM_MINGW }}
+        if: matrix.mingw
+        run: |
+          set -euo pipefail
+          name="llvm-mingw-$LLVM_MINGW-ucrt-ubuntu-22.04-x86_64"
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/$name.tar.xz" \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/$LLVM_MINGW/$name.tar.xz"
+          echo "$LLVM_MINGW_SHA256  $RUNNER_TEMP/$name.tar.xz" | sha256sum --check -
+          tar -xf "$RUNNER_TEMP/$name.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$name/bin" >> "$GITHUB_PATH"
+
+      - name: Build ${{ matrix.target }}
+        run: node build.mjs build ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ffmpeg-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish ${{ needs.plan.outputs.tag }}
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ffmpeg-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums, release notes and the crate's digests
+        run: node build.mjs publish
+
+      # The tag points at a commit beside main that carries the crate's digests, so
+      # a Cargo dependency on the tag fixes the exact builds.
+      - name: Tag the crate
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          TITLE: ${{ needs.plan.outputs.title }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add crate/ffmpeg.json crate/Cargo.toml
+          git commit --quiet --message "$TITLE"
+          git tag "$TAG"
+          git push --quiet origin "refs/tags/$TAG"
+
+      - name: Create the release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ needs.plan.outputs.tag }}
+          name: ${{ needs.plan.outputs.title }}
+          body_path: notes.md
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: dist/*

@@ -1,0 +1,12 @@
+[package]
+name = "anisphere-ffmpeg"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+description = "The small FFmpeg AniSphere embeds, fetched from this repository's releases"
+repository = "https://github.com/AniSphereDevelopment/FFmpeg"
+publish = false
+
+[build-dependencies]
+serde_json = "1"
+sha2 = "0.11"
