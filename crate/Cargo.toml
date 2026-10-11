@@ -1,6 +1,6 @@
 [package]
 name = "anisphere-ffmpeg"
-version = "0.0.0"
+version = "9.0.2+2.0.0"
 edition = "2021"
 license = "MIT"
 description = "The small FFmpeg AniSphere embeds, fetched from this repository's releases"

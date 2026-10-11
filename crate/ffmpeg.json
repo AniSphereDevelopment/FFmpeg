@@ -1,0 +1,12 @@
+{
+  "repository": "AniSphereDevelopment/FFmpeg",
+  "release": "9.0.2+2.0.0",
+  "sha256": {
+    "x86_64-pc-windows-msvc": "d210a67078d8a3740ced29b56ee21668a900079e991ac57231986478534b736d",
+    "aarch64-pc-windows-msvc": "90e6c5011de9a3e7b7d6d9fed7b98629d281182ffbb7f93177f03237a594ea3a",
+    "x86_64-unknown-linux-gnu": "fb1135c725d755c64c399ef0f5e863dba8caae2ea6ef16fbece803734d65c759",
+    "aarch64-unknown-linux-gnu": "6af440ea19e2e665ee276f8812509c2e68ec2a11b1f68ce720450b268a22f703",
+    "aarch64-apple-darwin": "5bf4f2f02acfbc225925b77d5d4ecfe2ee046dbc826c596fedb264ec9ff9dc51",
+    "x86_64-apple-darwin": "7c343881d162e86f58aee1ed410e6c40ccac84da9da7a86c83ed3eaf7dc27bd8"
+  }
+}
